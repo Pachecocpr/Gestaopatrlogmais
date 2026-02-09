@@ -2,81 +2,98 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
+from pyzbar.pyzbar import decode
+from PIL import Image
+import numpy as np
 
 # 1. CONFIGURAÇÃO DA PÁGINA
-st.set_page_config(page_title="Gestão de Patrimônio", page_icon="📦", layout="wide")
+st.set_page_config(page_title="Patrimônio Logística", page_icon="📦", layout="wide")
 
-# Inicializa a lista de bens na memória do navegador, se ainda não existir
-if 'lista_bens' not in st.session_state:
-    st.session_state['lista_bens'] = []
+# Inicializa a memória do app (Session State)
+if 'lista_patrimonio' not in st.session_state:
+    st.session_state['lista_patrimonio'] = []
 
-st.title("📦 Gestão de Patrimônio Logístico")
+st.title("📦 Gestão de Patrimônio Unificado")
+st.markdown("---")
 
-# --- BARRA LATERAL (Ações) ---
-st.sidebar.header("⚙️ Opções")
-if st.sidebar.button("Limpar Lista Atual"):
-    st.session_state['lista_bens'] = []
+# --- BARRA LATERAL ---
+st.sidebar.header("⚙️ Painel de Controle")
+if st.sidebar.button("🗑️ Limpar Lista Atual"):
+    st.session_state['lista_patrimonio'] = []
     st.rerun()
 
-# --- INTERFACE DE ENTRADA ---
-st.subheader("🔍 Identificação do Bem")
-metodo = st.radio("Método de Leitura:", ["Leitor Zebra / Manual", "Câmera do Celular"], horizontal=True)
+# --- MÉTODO DE LEITURA ---
+st.subheader("🔍 Identificação do Item")
+metodo = st.radio("Selecione o dispositivo de entrada:", 
+                  ["Leitor Zebra (Teclado)", "Câmera do Smartphone (Scan)"], 
+                  horizontal=True)
 
-codigo_patrimonio = ""
-if metodo == "Leitor Zebra / Manual":
-    codigo_patrimonio = st.text_input("Aponte o leitor Zebra ou digite o código:", key="input_scan")
+codigo_final = ""
+
+if metodo == "Leitor Zebra (Teclado)":
+    # O Zebra digita automaticamente aqui ao bipar
+    codigo_final = st.text_input("Aguardando bip do leitor...", key="zebra_in", placeholder="Clique aqui antes de bipar")
 else:
-    img_file = st.camera_input("Tire uma foto do código de barras")
-    st.info("Nota: A leitura automática por foto requer processamento adicional.")
+    foto = st.camera_input("Tire uma foto nítida do código de barras")
+    if foto:
+        with st.spinner('Escaneando imagem...'):
+            img_pil = Image.open(foto)
+            # Decodifica o código de barras da foto
+            scan_resultado = decode(img_pil)
+            
+            if scan_resultado:
+                codigo_final = scan_resultado[0].data.decode('utf-8')
+                st.success(f"✅ Código detectado via Câmera: {codigo_final}")
+            else:
+                st.error("❌ Não foi possível ler o código na foto. Tente focar melhor ou limpar a lente.")
 
 # --- FORMULÁRIO DE REGISTRO ---
-if codigo_patrimonio:
-    st.divider()
-    with st.form("form_patrimonio", clear_on_submit=True):
-        st.write(f"✍️ Cadastrando item: **{codigo_patrimonio}**")
+if codigo_final:
+    st.markdown(f"### 📋 Detalhes do Bem: `{codigo_final}`")
+    with st.form("form_registro", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            tipo_etiqueta = st.selectbox("Tipo de Etiqueta:", ["Papel", "Metal", "Poliéster"])
-        with col2:
-            unidade = st.radio("Unidade:", ["Unidade 1", "Unidade 2"])
-            
-        descricao = st.text_input("Descrição resumida (Ex: Paleteira):")
+            unidade = st.selectbox("Localização:", ["Unidade 1", "Unidade 2"])
+            etiqueta = st.selectbox("Tipo de Etiqueta:", ["Metal (Patrimonial)", "Papel (Comum)", "Poliéster"])
         
-        btn_salvar = st.form_submit_button("💾 Salvar na Lista")
+        with col2:
+            descricao = st.text_input("Descrição do Bem:", placeholder="Ex: Paleteira Elétrica")
+            obs = st.text_input("Observações:")
 
-        if btn_salvar:
-            # Adiciona o bem à lista na memória
-            novo_bem = {
-                "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "Código": codigo_patrimonio,
+        salvar = st.form_submit_button("💾 Salvar Registro")
+
+        if salvar:
+            # Adiciona os dados na memória
+            novo_item = {
+                "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "Patrimônio": codigo_final,
                 "Descrição": descricao,
-                "Etiqueta": tipo_etiqueta,
-                "Unidade": unidade
+                "Unidade": unidade,
+                "Tipo Etiqueta": etiqueta,
+                "Observação": obs
             }
-            st.session_state['lista_bens'].append(novo_bem)
-            st.success(f"Item {codigo_patrimonio} adicionado!")
+            st.session_state['lista_patrimonio'].append(novo_item)
+            st.toast(f"Item {codigo_final} salvo!", icon='✅')
 
-# --- VISUALIZAÇÃO E EXPORTAÇÃO ---
-if st.session_state['lista_bens']:
-    st.divider()
-    st.subheader("📋 Itens Registrados nesta Sessão")
+# --- EXIBIÇÃO E DOWNLOAD ---
+if st.session_state['lista_patrimonio']:
+    st.markdown("---")
+    st.subheader("📋 Itens Registrados (Sessão Atual)")
     
-    # Converte a lista para um DataFrame para exibir e exportar
-    df_bens = pd.DataFrame(st.session_state['lista_bens'])
-    st.dataframe(df_bens, use_container_width=True)
+    df_resultado = pd.DataFrame(st.session_state['lista_patrimonio'])
+    st.dataframe(df_resultado, use_container_width=True)
 
-    # Função para gerar o Excel
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_bens.to_excel(writer, index=False, sheet_name='Patrimonio')
+    # Geração do arquivo Excel
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df_resultado.to_excel(writer, index=False, sheet_name='Patrimonio')
     
-    # Botão de Download
     st.download_button(
         label="📥 Baixar Relatório em Excel",
-        data=output.getvalue(),
-        file_name=f"patrimonio_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        data=buffer.getvalue(),
+        file_name=f"patrimonio_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 else:
-    st.info("Nenhum item registrado ainda.")
+    st.info("Nenhum item registrado até o momento. Utilize o leitor ou a câmera acima.")
