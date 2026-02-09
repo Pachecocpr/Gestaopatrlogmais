@@ -4,80 +4,80 @@ from datetime import datetime
 from io import BytesIO
 
 # 1. CONFIGURAÇÃO DA PÁGINA
-st.set_page_config(page_title="Património Logística", layout="centered")
+st.set_page_config(page_title="Patrimônio Logística", layout="centered", page_icon="📦")
 
-# Inicialização de variáveis de estado
+# Inicialização da lista de patrimônio se não existir
 if 'lista_patrimonio' not in st.session_state:
     st.session_state['lista_patrimonio'] = []
 
-# Função para processar o salvamento e limpar o campo
-def salvar_e_limpar():
-    codigo = st.session_state.campo_leitura
+# Função de Callback: Salva o dado e limpa o campo imediatamente
+def processar_leitura():
+    codigo = st.session_state.campo_scan
     if codigo:
-        # Cria o registo com os dados atuais
-        novo_registro = {
+        # Registra os dados usando os estados atuais dos outros campos
+        novo_item = {
             "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "Código": codigo,
-            "Descrição": st.session_state.get('desc_input', ''),
-            "Unidade": st.session_state.get('unidade_input', 'Unidade 1'),
-            "Etiqueta": st.session_state.get('etiqueta_input', 'Metal')
+            "Descrição": st.session_state.get('desc_padrao', ''),
+            "Unidade": st.session_state.get('unidade_sel', 'Unidade 1'),
+            "Etiqueta": st.session_state.get('etiqueta_sel', 'Metal')
         }
-        # Adiciona à lista
-        st.session_state['lista_patrimonio'].append(novo_registro)
-        # Limpa o campo de leitura para a próxima inserção
-        st.session_state.campo_leitura = ""
-        st.toast(f"Item {codigo} registado com sucesso!", icon="✅")
+        # Adiciona à lista permanente da sessão
+        st.session_state['lista_patrimonio'].append(novo_item)
+        
+        # Limpa o campo de texto para o próximo "bip"
+        st.session_state.campo_scan = ""
+        st.toast(f"Código {codigo} registrado!", icon="✅")
 
-st.title("📦 Gestão de Património")
-st.caption("Modo de Inserção Contínua (Auto-save & Clear)")
+# --- INTERFACE ---
+st.title("📦 Gestão de Patrimônio")
+st.write("Otimizado para App **Barcodes (TeaCapps)**")
 
-# --- CONFIGURAÇÕES PRÉVIAS (Ficam salvas para os próximos bips) ---
-st.subheader("⚙️ Configurações do Lote")
-col1, col2 = st.columns(2)
+# --- CONFIGURAÇÕES DE LOTE ---
+# Estas opções ficam salvas enquanto você bipa vários itens iguais
+st.subheader("⚙️ Definições do Lote")
+c1, c2 = st.columns(2)
 
-with col1:
+with c1:
     st.radio("Unidade Atual:", ["Unidade 1", "Unidade 2"], 
-             key="unidade_input", horizontal=True)
+             key="unidade_sel", horizontal=True)
     st.selectbox("Tipo de Etiqueta:", ["Metal", "Papel", "Poliéster"], 
-                 key="etiqueta_input")
+                 key="etiqueta_sel")
 
-with col2:
-    st.text_input("Descrição Padrão:", placeholder="Ex: Cadeira Escritório", 
-                 key="desc_input")
+with c2:
+    st.text_input("Descrição Padrão:", placeholder="Ex: Paleteira Hidráulica", 
+                 key="desc_padrao")
 
 st.divider()
 
-# --- CAMPO DE LEITURA COM AUTO-LIMPEZA ---
-st.subheader("🔍 Leitura de Código")
-# O on_change chama a função assim que o Enter é pressionado
+# --- CAMPO DE ENTRADA (ONDE O APP BARCODES VAI ATUAR) ---
+st.subheader("🔍 Scanner")
 st.text_input(
-    "Clique aqui e bibe o código:", 
-    key="campo_leitura", 
-    on_change=salvar_e_limpar,
-    placeholder="Aguardando bip do leitor..."
+    "Clique aqui para iniciar a leitura:", 
+    key="campo_scan", 
+    on_change=processar_leitura, # Dispara a função ao receber o 'Enter' do App
+    placeholder="Aguardando bip..."
 )
 
-# --- VISUALIZAÇÃO E EXPORTAÇÃO ---
+# --- TABELA E EXPORTAÇÃO ---
 if st.session_state['lista_patrimonio']:
     st.markdown("---")
-    st.subheader("📋 Itens Registados")
-    
     df = pd.DataFrame(st.session_state['lista_patrimonio'])
     st.dataframe(df, use_container_width=True)
     
-    # Gerar ficheiro Excel
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    # Gerar Excel
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Patrimonio')
     
     st.download_button(
-        label="📥 Descarregar Relatório Excel",
-        data=output.getvalue(),
-        file_name=f"patrimonio_{datetime.now().strftime('%H%M%S')}.xlsx",
+        label="📥 Baixar Relatório Excel",
+        data=buffer.getvalue(),
+        file_name=f"inventario_{datetime.now().strftime('%H%M%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# Botão na barra lateral para reiniciar o trabalho
-if st.sidebar.button("Reiniciar Lista"):
+# Botão para reiniciar sessão
+if st.sidebar.button("Reiniciar Inventário"):
     st.session_state['lista_patrimonio'] = []
     st.rerun()
