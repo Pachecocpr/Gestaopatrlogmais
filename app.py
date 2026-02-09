@@ -3,43 +3,53 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 
-# Configuração da página
+# 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Patrimônio Logística", layout="centered")
 
-# Inicializa a lista na memória
+# Inicializa a lista de patrimônio e uma variável de controle para o código
 if 'lista_patrimonio' not in st.session_state:
     st.session_state['lista_patrimonio'] = []
 
 st.title("📦 Gestão de Patrimônio")
-st.info("Para usar no celular: Ative o 'Modo Teclado' no app Binary Eye.")
+st.caption("Configurado para salvamento rápido com Leitor Zebra / Enter.")
 
 # --- ENTRADA DE DADOS ---
 st.subheader("🔍 Escanear Item")
-# O segredo é clicar neste campo antes de bipar
-codigo_lido = st.text_input("Clique aqui e use o scanner:", key="input_scan")
 
+# Campo de entrada de texto
+codigo_lido = st.text_input("Aponte o leitor e bibe (Enter salva automaticamente):", key="input_scan")
+
+# --- INTERFACE DE SELEÇÃO ---
+# Unidade e Etiqueta ficam fora do formulário para estarem sempre prontas
+col1, col2 = st.columns(2)
+with col1:
+    unidade = st.radio("Unidade:", ["Unidade 1", "Unidade 2"], horizontal=True)
+with col2:
+    etiqueta = st.selectbox("Etiqueta:", ["Metal", "Papel", "Poliéster"])
+
+descricao = st.text_input("Descrição do Bem:")
+
+# --- LÓGICA DE SALVAMENTO AUTOMÁTICO ---
+# Se houver um código e o usuário apertar Enter no teclado ou o Zebra enviar o Enter
 if codigo_lido:
-    st.success(f"✅ Identificado: **{codigo_lido}**")
-    
-    with st.form("cad_patrimonio", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            unidade = st.radio("Unidade:", ["Unidade 1", "Unidade 2"])
-            etiqueta = st.selectbox("Etiqueta:", ["Metal", "Papel", "Poliéster"])
-        with col2:
-            desc = st.text_input("Descrição do Bem:")
-            obs = st.text_input("Observações:")
+    # Criamos um botão de confirmação que também serve como gatilho
+    if st.button("Confirmar e Salvar Agora") or (codigo_lido and st.session_state.get('last_code') != codigo_lido):
         
-        if st.form_submit_button("💾 Salvar Registro"):
-            st.session_state['lista_patrimonio'].append({
-                "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "Código": codigo_lido,
-                "Descrição": desc,
-                "Unidade": unidade,
-                "Etiqueta": etiqueta,
-                "Obs": obs
-            })
-            st.toast("Salvo!")
+        novo_registro = {
+            "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "Código": codigo_lido,
+            "Descrição": descricao,
+            "Unidade": unidade,
+            "Etiqueta": etiqueta
+        }
+        
+        # Adiciona à lista
+        st.session_state['lista_patrimonio'].append(novo_registro)
+        st.session_state['last_code'] = codigo_lido # Evita duplicar no mesmo ciclo
+        
+        st.success(f"✅ Item {codigo_lido} salvo automaticamente!")
+        st.info("Pronto para o próximo código.")
+        # O Streamlit reinicia o ciclo e limpa o foco para o próximo item
 
 # --- VISUALIZAÇÃO E EXCEL ---
 if st.session_state['lista_patrimonio']:
@@ -53,3 +63,8 @@ if st.session_state['lista_patrimonio']:
         df.to_excel(writer, index=False)
     
     st.download_button("📥 Baixar Relatório Excel", output.getvalue(), "patrimonio.xlsx")
+
+# Barra lateral para limpar
+if st.sidebar.button("Limpar Tudo"):
+    st.session_state['lista_patrimonio'] = []
+    st.rerun()
