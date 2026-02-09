@@ -1,2 +1,6 @@
 streamlit
 pandas
+xlsxwriter
+opencv-python-headless
+pyzbar
+pilllow
