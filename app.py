@@ -1,45 +1,82 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
 
 # 1. CONFIGURAÇÃO DA PÁGINA
-st.set_page_config(page_title="Gestão de Patrimônio", page_icon="📦", layout="centered")
+st.set_page_config(page_title="Gestão de Patrimônio", page_icon="📦", layout="wide")
+
+# Inicializa a lista de bens na memória do navegador, se ainda não existir
+if 'lista_bens' not in st.session_state:
+    st.session_state['lista_bens'] = []
 
 st.title("📦 Gestão de Patrimônio Logístico")
-st.write("Registre e controle os bens das unidades.")
+
+# --- BARRA LATERAL (Ações) ---
+st.sidebar.header("⚙️ Opções")
+if st.sidebar.button("Limpar Lista Atual"):
+    st.session_state['lista_bens'] = []
+    st.rerun()
 
 # --- INTERFACE DE ENTRADA ---
 st.subheader("🔍 Identificação do Bem")
-
-# Opção para escolher o método de entrada
 metodo = st.radio("Método de Leitura:", ["Leitor Zebra / Manual", "Câmera do Celular"], horizontal=True)
 
 codigo_patrimonio = ""
-
 if metodo == "Leitor Zebra / Manual":
-    # O leitor Zebra funciona como um teclado. 
-    codigo_patrimonio = st.text_input("Aponte o leitor Zebra ou digite o código:", key="zebra_input")
+    codigo_patrimonio = st.text_input("Aponte o leitor Zebra ou digite o código:", key="input_scan")
 else:
-    st.info("Use o botão abaixo para abrir a câmera e capturar o código.")
     img_file = st.camera_input("Tire uma foto do código de barras")
-    if img_file:
-        st.warning("Imagem capturada! (Para decodificar o código automaticamente via foto, é necessário integrar uma biblioteca de visão computacional).")
+    st.info("Nota: A leitura automática por foto requer processamento adicional.")
 
-# --- FORMULÁRIO DE DETALHES ---
+# --- FORMULÁRIO DE REGISTRO ---
 if codigo_patrimonio:
     st.divider()
-    st.success(f"Código Identificado: **{codigo_patrimonio}**")
-    
-    with st.form("registro_patrimonio"):
+    with st.form("form_patrimonio", clear_on_submit=True):
+        st.write(f"✍️ Cadastrando item: **{codigo_patrimonio}**")
         col1, col2 = st.columns(2)
-        with col1:
-            tipo_etiqueta = st.selectbox("Tipo de Etiqueta:", ["Papel (Comum)", "Metal (Patrimonial)", "Poliéster"])
-        with col2:
-            unidade = st.radio("Unidade de Alocação:", ["Unidade 1", "Unidade 2"], index=0)
         
-        descricao_bem = st.text_area("Descrição do Bem:", placeholder="Ex: Empilhadeira, Notebook...")
-        enviar = st.form_submit_button("💾 Salvar Registro")
+        with col1:
+            tipo_etiqueta = st.selectbox("Tipo de Etiqueta:", ["Papel", "Metal", "Poliéster"])
+        with col2:
+            unidade = st.radio("Unidade:", ["Unidade 1", "Unidade 2"])
+            
+        descricao = st.text_input("Descrição resumida (Ex: Paleteira):")
+        
+        btn_salvar = st.form_submit_button("💾 Salvar na Lista")
 
-        if enviar:
-            st.balloons()
-            st.success(f"Bem {codigo_patrimonio} registrado na {unidade}!")
+        if btn_salvar:
+            # Adiciona o bem à lista na memória
+            novo_bem = {
+                "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "Código": codigo_patrimonio,
+                "Descrição": descricao,
+                "Etiqueta": tipo_etiqueta,
+                "Unidade": unidade
+            }
+            st.session_state['lista_bens'].append(novo_bem)
+            st.success(f"Item {codigo_patrimonio} adicionado!")
+
+# --- VISUALIZAÇÃO E EXPORTAÇÃO ---
+if st.session_state['lista_bens']:
+    st.divider()
+    st.subheader("📋 Itens Registrados nesta Sessão")
+    
+    # Converte a lista para um DataFrame para exibir e exportar
+    df_bens = pd.DataFrame(st.session_state['lista_bens'])
+    st.dataframe(df_bens, use_container_width=True)
+
+    # Função para gerar o Excel
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_bens.to_excel(writer, index=False, sheet_name='Patrimonio')
+    
+    # Botão de Download
+    st.download_button(
+        label="📥 Baixar Relatório em Excel",
+        data=output.getvalue(),
+        file_name=f"patrimonio_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+else:
+    st.info("Nenhum item registrado ainda.")
