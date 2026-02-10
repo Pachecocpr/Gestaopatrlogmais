@@ -5,7 +5,7 @@ from io import BytesIO
 
 # 1. CONFIGURAÇÃO DA PÁGINA (Ícone de móvel e Nome Personalizado)
 st.set_page_config(
-    page_title="Inventário de Móveis", 
+    page_title="Gestão de Patrimônios", 
     page_icon="🗄️", 
     layout="centered"
 )
