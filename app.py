@@ -3,42 +3,52 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 from PIL import Image
+import base64
 
-# 1. CONFIGURAÇÃO DA PÁGINA (Ícone e Nome que aparecerão no Smartphone)
-# Esta deve ser a PRIMEIRA linha de comando Streamlit
+# --- 1. CONFIGURAÇÃO DA PÁGINA (NOME E ÍCONE) ---
+def get_image_as_base64(path):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    except:
+        return None
+
+# Tenta carregar a logo para o ícone da aba e do atalho
 try:
     img_logo = Image.open("logo.png")
+    # Técnica para forçar o navegador a reconhecer o ícone novo
+    logo_base64 = get_image_as_base64("logo.png")
 except:
-    # Caso a imagem não seja encontrada no GitHub, usa um emoji como fallback
     img_logo = "🗄️"
+    logo_base64 = None
 
 st.set_page_config(
-    page_title="Inventory Pro", # Nome que aparecerá no atalho do celular
-    page_icon=img_logo,          # Ícone que aparecerá no atalho do celular
+    page_title="Inventory Pro",  # Nome que aparecerá no ícone do smartphone
+    page_icon=img_logo,
     layout="centered"
 )
 
-# 2. DESIGN PROFISSIONAL (Esconde menus padrão do Streamlit)
-hide_menu_style = """
+# --- 2. CSS PARA APARÊNCIA PROFISSIONAL E REMOVER STREAMLIT ---
+hide_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    /* Ajuste de margem superior para a logo */
+    /* Remove espaço em branco excessivo no topo */
     .block-container {padding-top: 1rem;}
+    /* Força o nome no topo da página caso queira reforçar a marca */
     </style>
 """
-st.markdown(hide_menu_style, unsafe_allow_html=True)
+st.markdown(hide_style, unsafe_allow_html=True)
 
-# 3. LÓGICA DE DADOS (Session State)
+# --- 3. LÓGICA DO INVENTÁRIO (SESSÃO) ---
 if 'lista_patrimonio' not in st.session_state:
     st.session_state['lista_patrimonio'] = []
 
-# 4. FUNÇÃO PARA SALVAR E LIMPAR (Otimizado para Leitor Zebra)
-def registrar_e_limpar():
+def registrar_item():
     codigo = st.session_state.campo_zebra
     if codigo:
-        # Cria o dicionário com os dados
         novo_item = {
             "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "Código": codigo,
@@ -46,57 +56,62 @@ def registrar_e_limpar():
             "Descrição": st.session_state.get('desc_lote', ''),
             "Etiqueta": st.session_state.get('etiqueta_lote', 'Metal')
         }
-        # Salva na lista
         st.session_state['lista_patrimonio'].append(novo_item)
-        # Limpa o campo de entrada para o próximo bip
-        st.session_state.campo_zebra = ""
-        st.toast(f"Código {codigo} registrado!", icon="✅")
+        st.session_state.campo_zebra = "" # Limpa para o próximo bip
+        st.toast(f"Código {codigo} salvo!", icon="✅")
 
-# --- INTERFACE VISUAL ---
+# --- 4. INTERFACE ---
 
-# Exibição da Logo no topo
-st.image(img_logo, width=120)
-st.title("Sistema de Inventário")
+# Exibe a logo no topo do app
+if logo_base64:
+    st.markdown(
+        f'<div style="text-align: center;"><img src="data:image/png;base64,{logo_base64}" width="120"></div>',
+        unsafe_allow_html=True
+    )
+else:
+    st.title("🗄️ Inventory Pro")
 
-# Painel de Configurações (Lote)
+st.markdown("<h1 style='text-align: center;'>Gestão de Patrimônio</h1>", unsafe_allow_html=True)
+
+# Configurações fixas para agilizar o trabalho com o Zebra
 with st.expander("⚙️ Configurações do Lote Atual", expanded=True):
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         st.radio("Unidade:", ["Unidade 1", "Unidade 2"], key="unidade_lote", horizontal=True)
         st.selectbox("Tipo de Etiqueta:", ["Metal", "Papel", "Poliéster"], key="etiqueta_lote")
-    with col2:
-        st.text_input("Descrição Padrão:", key="desc_lote", placeholder="Ex: Armário de Aço")
+    with c2:
+        st.text_input("Descrição Padrão:", key="desc_lote", placeholder="Ex: Cadeira Giratória")
 
 st.divider()
 
-# Campo de Leitura (Foco do Zebra)
-st.subheader("🔍 Entrada do Leitor Zebra")
+# Campo principal para o Leitor Zebra (Simula teclado + Enter)
+st.subheader("🔍 Scanner")
 st.text_input(
-    "Clique aqui antes de começar a bipar:", 
+    "Mantenha o cursor aqui para bipar:", 
     key="campo_zebra", 
-    on_change=registrar_e_limpar, # Ativa o salvamento automático ao receber o 'Enter' do leitor
-    placeholder="Aguardando bip..."
+    on_change=registrar_item, 
+    placeholder="Aguardando bip do Zebra..."
 )
 
-# --- TABELA E DOWNLOAD ---
+# --- 5. TABELA E EXPORTAÇÃO ---
 if st.session_state['lista_patrimonio']:
-    st.markdown("### 📋 Itens Registrados")
+    st.write("### 📋 Itens Coletados")
     df = pd.DataFrame(st.session_state['lista_patrimonio'])
     st.dataframe(df, use_container_width=True)
     
-    # Exportação para Excel
+    # Gerador de Excel
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False)
     
     st.download_button(
-        label="📥 Baixar Relatório Excel",
+        label="📥 Baixar Relatório (Excel)",
         data=output.getvalue(),
-        file_name=f"inventario_zebra_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
+        file_name=f"inventario_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# Opção para resetar a lista na barra lateral
-if st.sidebar.button("🗑️ Reiniciar Lista"):
+# Sidebar
+if st.sidebar.button("🗑️ Limpar Tudo"):
     st.session_state['lista_patrimonio'] = []
     st.rerun()
