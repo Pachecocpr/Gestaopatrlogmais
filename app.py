@@ -6,7 +6,7 @@ from PIL import Image
 import base64
 
 # =========================================================
-# CONFIGURAÇÃO DE UNIDADES - EDITE OS NOMES ABAIXO
+# CONFIGURAÇÃO DE UNIDADES - SUBSTITUA PELOS NOMES REAIS
 # =========================================================
 NOME_DAS_UNIDADES = [
     "CLI-CONTAGEM BH",
@@ -34,17 +34,23 @@ except:
 
 st.set_page_config(page_title="Inventory Pro", page_icon=img_logo, layout="centered")
 
-# --- 2. CARREGAMENTO DA BASE MESTRE ---
+# --- 2. CARREGAMENTO DA BASE MESTRE (BUSCA B vs C) ---
 @st.cache_data
 def carregar_base_mestre():
     try:
+        # Lê o arquivo Excel
         df = pd.read_excel("base_patrimonio.xlsx")
+        
+        # Cria um DataFrame de busca limpo:
+        # Coluna B (Índice 1) = Patrimônio/PIB
+        # Coluna C (Índice 2) = Descrição do Bem
         df_limpo = pd.DataFrame()
-        # Coluna 1: Código | Coluna 3: Descrição
-        df_limpo['cod_ref'] = df.iloc[:, 0].astype(str).str.strip()
+        df_limpo['pib_ref'] = df.iloc[:, 1].astype(str).str.strip()
         df_limpo['desc_ref'] = df.iloc[:, 2].astype(str).str.strip()
+        
         return df_limpo
-    except:
+    except Exception as e:
+        st.error(f"Erro ao ler colunas B e C: {e}")
         return None
 
 df_referencia = carregar_base_mestre()
@@ -54,62 +60,79 @@ if 'lista_patrimonio' not in st.session_state:
     st.session_state['lista_patrimonio'] = []
 
 def registrar_item():
-    codigo_lido = str(st.session_state.campo_zebra).strip()
+    pib_lido = str(st.session_state.campo_zebra).strip()
     
-    if codigo_lido:
-        descricao_final = "NÃO LOCALIZADO"
+    if pib_lido:
+        descricao_final = "ITEM NÃO ENCONTRADO NA BASE"
+        
         if df_referencia is not None:
-            resultado = df_referencia[df_referencia['cod_ref'] == codigo_lido]
+            # Busca o PIB lido na coluna de referência (Coluna B)
+            resultado = df_referencia[df_referencia['pib_ref'] == pib_lido]
+            
             if not resultado.empty:
+                # Se achou, pega a descrição correspondente (Coluna C)
                 descricao_final = resultado.iloc[0]['desc_ref']
         
+        # Adiciona o registro à lista
         st.session_state['lista_patrimonio'].append({
             "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            "Patrimônio": codigo_lido,
+            "PIB/Patrimônio": pib_lido,
             "Descrição": descricao_final,
-            "Unidade": st.session_state.unidade_atual # Salva o nome real da unidade
+            "Unidade": st.session_state.unidade_atual
         })
         
-        if descricao_final == "NÃO LOCALIZADO":
-            st.toast(f"Código {codigo_lido} não encontrado!", icon="⚠️")
+        # Alerta visual para o usuário
+        if "NÃO ENCONTRADO" in descricao_final:
+            st.toast(f"Código {pib_lido} não consta na base!", icon="⚠️")
         else:
             st.toast(f"✅ {descricao_final}", icon="✔️")
         
+        # Limpa o campo para o próximo bip
         st.session_state.campo_zebra = ""
 
 # --- 4. INTERFACE ---
 if logo_base64:
     st.markdown(f'<center><img src="data:image/png;base64,{logo_base64}" width="120"></center>', unsafe_allow_html=True)
-st.markdown("<h2 style='text-align: center;'>Inventário por Gerência</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center;'>Inventário de Patrimônio</h2>", unsafe_allow_html=True)
 
-# Esconde menus do Streamlit
+# Esconde elementos do Streamlit para parecer App
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
-# Painel de Seleção de Unidades Reais
-with st.expander("📍 Selecione o Local da Coleta", expanded=True):
-    st.selectbox(
-        "Unidade Responsável:",
-        options=NOME_DAS_UNIDADES,
-        key="unidade_atual"
-    )
+# Seleção de Unidade
+with st.expander("📍 Localização da Coleta", expanded=True):
+    st.selectbox("Selecione a Unidade:", options=NOME_DAS_UNIDADES, key="unidade_atual")
 
 st.divider()
 
 # Scanner Input
 st.subheader("🔍 Scanner Zebra")
-st.text_input("Bipe o código aqui:", key="campo_zebra", on_change=registrar_item, placeholder="Aguardando bip...")
+st.text_input(
+    "Clique aqui e comece a bipar:", 
+    key="campo_zebra", 
+    on_change=registrar_item, 
+    placeholder="Aguardando PIB..."
+)
 
-# Tabela e Exportação
+# --- 5. TABELA E EXPORTAÇÃO ---
 if st.session_state['lista_patrimonio']:
-    st.markdown("### Itens Lidos")
+    st.markdown("### 📋 Resumo da Coleta")
     df_result = pd.DataFrame(st.session_state['lista_patrimonio'])
+    
+    # Exibe tabela formatada
     st.dataframe(df_result, use_container_width=True)
     
+    # Botão de Download
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_result.to_excel(writer, index=False)
-    st.download_button("📥 Baixar Relatório das Unidades", output.getvalue(), f"inventario_unidades_{datetime.now().strftime('%d%m')}.xlsx")
+    
+    st.download_button(
+        label="📥 Baixar Relatório (Excel)", 
+        data=output.getvalue(), 
+        file_name=f"inventario_{st.session_state.unidade_atual}_{datetime.now().strftime('%d%m')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-if st.sidebar.button("🗑️ Limpar Lista"):
+if st.sidebar.button("🗑️ Limpar Tudo"):
     st.session_state['lista_patrimonio'] = []
     st.rerun()
