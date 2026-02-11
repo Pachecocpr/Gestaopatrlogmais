@@ -111,7 +111,7 @@ st.markdown("<h2 style='text-align: center;'>Inventário de Patrimônio</h2>", u
 st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}</style>""", unsafe_allow_html=True)
 
 # Painel de Seleção
-with st.expander("📍 Unidade de Coleta", expanded=True):
+with st.expander("📍 Unidade Alocada.", expanded=True):
     st.selectbox("Selecione o Local:", options=NOME_DAS_UNIDADES, key="unidade_atual")
 
 st.divider()
