@@ -2,154 +2,132 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
-from PIL import Image
-import base64
 
-# =========================================================
-# CONFIGURAÇÃO DE UNIDADES - ATUALIZADO
-# =========================================================
-NOME_DAS_UNIDADES = [
-    "CLI-CONTAGEM BH",
-    "CLI-CONTAGEM CTG",
-    "CLI-TAPERA",
-    "CLI-ARO",
-    "CLI-UNIVERSITÁRIO",
-    "CLI-DEFENSORIA PÚBLICA",
-    "CLI-TJ",
-    "CLI-INDAIA",
-    "CEDIP",
-    "GELOG-MG",
-    "CLI-CAIXA"
-]
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(
+    page_title="Inventory Pro | Gestão de Patrimônio", 
+    page_icon="📦", 
+    layout="centered"
+)
 
-OPCOES_ETIQUETA = ["Metal", "Papel"]
-
-# --- 1. CONFIGURAÇÃO DE IDENTIDADE ---
-try:
-    img_logo = Image.open("logo.png")
-    with open("logo.png", "rb") as f:
-        logo_base64 = base64.b64encode(f.read()).decode()
-except:
-    img_logo = "🗄️"
-    logo_base64 = None
-
-st.set_page_config(page_title="Inventory Pro", page_icon=img_logo, layout="centered")
-
-# --- 2. CARREGAMENTO DA BASE MESTRE (BUSCA INTELIGENTE) ---
+# --- 1. CARREGAMENTO DA BASE MESTRE (COLUNAS B, C, E, F) ---
 @st.cache_data
 def carregar_base_mestre():
     try:
-        # Carrega o Excel garantindo o uso do openpyxl
-        df = pd.read_excel("base_patrimonio.xlsx", engine='openpyxl')
-        
-        # Limpa nomes das colunas
-        df.columns = [str(c).strip().lower() for c in df.columns]
+        # Carrega o Excel sem cabeçalho para mapear pelos índices exatos das colunas
+        # Coluna B=1, C=2, E=4, F=5
+        df = pd.read_excel("base_patrimonio.xlsx", engine='openpyxl', header=None)
         
         df_limpo = pd.DataFrame()
-
-        # Tenta achar o PIB/Patrimônio por NOME ou pela COLUNA B (índice 1)
-        try:
-            col_pib = [c for c in df.columns if 'patrimonio' in c or 'pib' in c or 'codigo' in c][0]
-            df_limpo['pib_ref'] = df[col_pib].astype(str).str.strip()
-        except:
-            df_limpo['pib_ref'] = df.iloc[:, 1].astype(str).str.strip()
-
-        # Tenta achar a Descrição por NOME ou pela COLUNA C (índice 2)
-        try:
-            col_desc = [c for c in df.columns if 'descricao' in c or 'bem' in c][0]
-            df_limpo['desc_ref'] = df[col_desc].astype(str).str.strip()
-        except:
-            df_limpo['desc_ref'] = df.iloc[:, 2].astype(str).str.strip()
-            
+        
+        # Mapeamento conforme solicitado:
+        # Coluna B (Índice 1) -> PIB/Patrimônio
+        df_limpo['pib_ref'] = df.iloc[:, 1].astype(str).str.strip().str.upper()
+        
+        # Coluna C (Índice 2) -> Descrição do Bem
+        df_limpo['desc_ref'] = df.iloc[:, 2].astype(str).str.strip()
+        
+        # Coluna E (Índice 4) -> Código de Local
+        df_limpo['cod_local_ref'] = df.iloc[:, 4].astype(str).str.strip()
+        
+        # Coluna F (Índice 5) -> Nome da Unidade
+        df_limpo['unidade_ref'] = df.iloc[:, 5].astype(str).str.strip()
+        
         return df_limpo
     except Exception as e:
-        st.error(f"Erro técnico ao ler a planilha: {e}")
+        st.error(f"Erro ao acessar 'base_patrimonio.xlsx'. Verifique se o arquivo está na pasta do script. Erro: {e}")
         return None
 
+# Inicializa a base de dados
 df_referencia = carregar_base_mestre()
 
-# --- 3. LÓGICA DE REGISTRO (DISPARADA PELO ENTER) ---
+# --- 2. ESTADO DA SESSÃO (MEMÓRIA DO APP) ---
 if 'lista_patrimonio' not in st.session_state:
     st.session_state['lista_patrimonio'] = []
 
+# --- 3. LÓGICA DE REGISTRO (DISPARADA PELO SCANNER/ENTER) ---
 def registrar_item():
-    # Captura o valor digitado no campo e limpa espaços
-    pib_lido = str(st.session_state.campo_zebra).strip()
+    pib_lido = str(st.session_state.campo_zebra).strip().upper()
     
     if pib_lido:
-        descricao_final = "NÃO LOCALIZADO"
+        # Valores padrão para itens não encontrados
+        detalhes = {
+            "Descrição": "NÃO LOCALIZADO",
+            "Cód. Local": "---",
+            "Unidade": "---"
+        }
         
+        # Busca na base carregada
         if df_referencia is not None:
-            # Busca exata na base de dados
             resultado = df_referencia[df_referencia['pib_ref'] == pib_lido]
             if not resultado.empty:
-                descricao_final = resultado.iloc[0]['desc_ref']
+                detalhes["Descrição"] = resultado.iloc[0]['desc_ref']
+                detalhes["Cód. Local"] = resultado.iloc[0]['cod_local_ref']
+                detalhes["Unidade"] = resultado.iloc[0]['unidade_ref']
         
-        # Salva o registro incluindo Unidade e Etiqueta selecionadas
-        st.session_state['lista_patrimonio'].append({
+        # Adiciona o registro à lista global (insere no início para aparecer primeiro na tabela)
+        st.session_state['lista_patrimonio'].insert(0, {
             "Data/Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "PIB/Patrimônio": pib_lido,
-            "Descrição": descricao_final,
-            "Unidade": st.session_state.unidade_atual,
-            "Etiqueta": st.session_state.etiqueta_atual
+            "Descrição": detalhes["Descrição"],
+            "Cód. Local": detalhes["Cód. Local"],
+            "Unidade": detalhes["Unidade"]
         })
         
-        # Feedback visual
-        if descricao_final == "NÃO LOCALIZADO":
+        # Feedback visual rápido
+        if detalhes["Descrição"] == "NÃO LOCALIZADO":
             st.toast(f"Código {pib_lido} não encontrado!", icon="⚠️")
         else:
-            st.toast(f"✅ {descricao_final}", icon="✔️")
+            st.toast(f"Item registrado com sucesso!", icon="✅")
         
-        # LIMPA O CAMPO AUTOMATICAMENTE PARA O PRÓXIMO
+        # Limpa o campo de entrada para o próximo BIP
         st.session_state.campo_zebra = ""
 
-# --- 4. INTERFACE ---
-if logo_base64:
-    st.markdown(f'<center><img src="data:image/png;base64,{logo_base64}" width="120"></center>', unsafe_allow_html=True)
-st.markdown("<h2 style='text-align: center;'>Inventário de Patrimônio</h2>", unsafe_allow_html=True)
-
-# Esconde menus do Streamlit para foco total
-st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}</style>""", unsafe_allow_html=True)
-
-# Painel de Seleção (Configurações do Lote)
-with st.expander("⚙️ Configurações da Unidade e Etiqueta", expanded=True):
-    col_unidade, col_etiq = st.columns([2, 1])
-    with col_unidade:
-        st.selectbox("Unidade Alocada:", options=NOME_DAS_UNIDADES, key="unidade_atual")
-    with col_etiq:
-        st.radio("Etiqueta:", options=OPCOES_ETIQUETA, key="etiqueta_atual", horizontal=True)
+# --- 4. INTERFACE DO USUÁRIO ---
+st.markdown("<h2 style='text-align: center;'>📦 Inventário de Patrimônio</h2>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: gray;'>Aponte o leitor Zebra para o código de barras</p>", unsafe_allow_html=True)
 
 st.divider()
 
-# Scanner
-st.subheader("🔍 Scanner / Entrada Manual")
-# O parâmetro on_change garante que ao clicar Enter no smartphone o registro seja feito
+# Campo de entrada principal
 st.text_input(
-    "Aguardando leitura ou digitação (Enter para salvar):", 
+    "Aguardando leitura...", 
     key="campo_zebra", 
     on_change=registrar_item,
-    placeholder="Digite o código ou bipe aqui..."
+    placeholder="Clique aqui e use o leitor ou digite o código"
 )
 
-# Tabela e Exportação
+# Exibição dos resultados
 if st.session_state['lista_patrimonio']:
-    st.markdown("### 📋 Itens Coletados")
     df_result = pd.DataFrame(st.session_state['lista_patrimonio'])
+    
+    st.subheader(f"📋 Itens Coletados ({len(df_result)})")
     st.dataframe(df_result, use_container_width=True)
     
-    # Gerar Excel para download
+    # --- 5. EXPORTAÇÃO EXCEL ---
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_result.to_excel(writer, index=False)
+        df_result.to_excel(writer, index=False, sheet_name='Inventário_Realizado')
     
     st.download_button(
         label="📥 Baixar Relatório Excel", 
         data=output.getvalue(), 
-        file_name=f"inventario_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        file_name=f"inventario_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
     )
 
-# Barra lateral
-if st.sidebar.button("🗑️ Limpar Lista Atual"):
-    st.session_state['lista_patrimonio'] = []
-    st.rerun()
+# Barra Lateral para utilitários
+with st.sidebar:
+    st.title("Opções")
+    if st.button("🗑️ Limpar Lista Atual"):
+        st.session_state['lista_patrimonio'] = []
+        st.rerun()
+    
+    st.divider()
+    st.info("""
+    **Instruções:**
+    1. O arquivo `base_patrimonio.xlsx` deve estar na mesma pasta.
+    2. A busca é feita na Coluna B.
+    3. O relatório exportado contém as informações das Colunas B, C, E e F.
+    """)
