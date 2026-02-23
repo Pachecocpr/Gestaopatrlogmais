@@ -8,9 +8,9 @@ st.set_page_config(page_title="Inventory Pro", page_icon="📦", layout="wide")
 
 # Lista de unidades para a caixa de seleção (conforme seu primeiro código)
 NOME_DAS_UNIDADES = [
-    "CLI-CONTAGEM BH", "CLI-CONTAGEM CTG", "CLI-TAPERA", "CLI-ARO",
-    "CLI-UNIVERSITÁRIO", "CLI-DEFENSORIA PÚBLICA", "CLI-TJ",
-    "CLI-INDAIA", "CEDIP", "GELOG-MG", "CLI-CAIXA"
+    "CLI CONTAGEM", "CLI-CONTAGEM CTG", "CLI TAPERA", "CLI ARO",
+    "CLI UNIVERSITÁRIO", "CLI-DEFENSORIA PÚBLICA", "CLI TJ",
+    "CLI INDAIA", "CEDIP", "GELOG MG", "CLI CAIXA"
 ]
 
 # --- 1. CARREGAMENTO DA BASE MESTRE ---
