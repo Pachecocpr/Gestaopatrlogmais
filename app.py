@@ -1,57 +1,110 @@
 import streamlit as st
 import pandas as pd
 import os
+from io import BytesIO
 
-# Configuração da página
-st.set_page_config(page_title="Gerenciador de Patrimônio", layout="centered")
+# Configuração da página para modo largo (melhor visualização da tabela)
+st.set_page_config(page_title="Gestão de Patrimônio - Leitor Zebra", layout="wide")
 
-st.title("📦 Sistema de Etiquetas")
+# --- INICIALIZAÇÃO DO ESTADO ---
+# Criamos uma lista na memória do navegador para armazenar as leituras da sessão
+if 'historico_leituras' not in st.session_state:
+    st.session_state.historico_leituras = []
 
-# 1. Instruções conforme a imagem
-st.info("""
-**Instruções:**
-1. O arquivo `base_patrimonio.xlsx` deve estar na mesma pasta do repositório.
-2. A busca/filtro é feita na Coluna B.
-3. O relatório exportado contém as informações das Colunas B, C, E e F.
-""")
+# --- INTERFACE ---
+st.title("📦 Sistema de Inventário e Etiquetas")
 
-# 2. Seleção do tipo de etiqueta
-tipo_etiqueta = st.selectbox("Selecione o tipo de etiqueta:", ["Papel", "Metal"])
+# Seleção do tipo de etiqueta (Radio buttons para seleção rápida)
+tipo_etiqueta = st.radio(
+    "Selecione o tipo de etiqueta para as próximas leituras:",
+    ["Papel", "Metal"],
+    horizontal=True
+)
 
-# 3. Processamento do Arquivo
+# Campo de entrada para o Leitor Zebra
+# O leitor simula um teclado e aperta 'Enter', o que aciona o processamento no Streamlit
+codigo_lido = st.text_input(
+    "Aguardando leitura do código de barras...", 
+    key="input_zebra", 
+    placeholder="Passe o leitor no patrimônio",
+    help="Clique aqui antes de começar a bipar."
+)
+
+# --- PROCESSAMENTO DOS DADOS ---
 arquivo_entrada = "base_patrimonio.xlsx"
 
 if os.path.exists(arquivo_entrada):
     try:
-        # Carrega o Excel
-        df = pd.read_excel(arquivo_entrada)
+        # Carregamos a base
+        df_base = pd.read_excel(arquivo_entrada)
 
-        # Seleção das Colunas (B, C, E, F) - Índices 1, 2, 4, 5
-        # Coluna B (1), C (2), E (4), F (5)
-        df_filtrado = df.iloc[:, [1, 2, 4, 5]]
-
-        st.success(f"Arquivo carregado com sucesso! Pronto para gerar etiqueta de **{tipo_etiqueta}**.")
+        # Mapeamento conforme as instruções:
+        # Coluna B (Índice 1) = Patrimônio/Busca
+        # Coluna C (Índice 2) = Descrição do Bem
+        # Coluna E (Índice 4) = Código do Local
+        # Coluna F (Índice 5) = Nome da Unidade
         
-        # Visualização prévia
-        st.write("### Prévia dos dados (Colunas B, C, E, F):")
-        st.dataframe(df_filtrado.head())
+        if codigo_lido:
+            # Busca o código na Coluna B (segunda coluna do Excel)
+            # Convertemos ambos para string para evitar erro de comparação número/texto
+            busca = df_base[df_base.iloc[:, 1].astype(str) == str(codigo_lido)]
 
-        # 4. Botão para Download do resultado
-        # Transformamos o dataframe em um arquivo Excel na memória
-        from io import BytesIO
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_filtrado.to_excel(writer, index=False, sheet_name='Relatorio')
-        
-        st.download_button(
-            label=f"📥 Baixar Relatório de {tipo_etiqueta}",
-            data=output.getvalue(),
-            file_name=f"relatorio_{tipo_etiqueta.lower()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            if not busca.empty:
+                # Extrai as informações das colunas B, C, E e F
+                novo_item = {
+                    "Patrimônio": busca.iloc[0, 1],
+                    "Descrição do Bem": busca.iloc[0, 2],
+                    "Código do Local": busca.iloc[0, 4],
+                    "Nome da Unidade": busca.iloc[0, 5],
+                    "Tipo Etiqueta": tipo_etiqueta
+                }
+
+                # Evita duplicar o mesmo patrimônio na lista da sessão atual
+                patrimonios_existentes = [item["Patrimônio"] for item in st.session_state.historico_leituras]
+                
+                if novo_item["Patrimônio"] not in patrimonios_existentes:
+                    st.session_state.historico_leituras.insert(0, novo_item) # Adiciona no topo
+                    st.toast(f"✅ Item {codigo_lido} adicionado!", icon='🎉')
+                else:
+                    st.warning(f"⚠️ O item {codigo_lido} já foi lido anteriormente.")
+            else:
+                st.error(f"❌ Código {codigo_lido} não encontrado na Coluna B da base.")
+
+        # --- EXIBIÇÃO DO RELATÓRIO EM TEMPO REAL ---
+        if st.session_state.historico_leituras:
+            st.write("### Relatório de Itens Lidos")
+            df_relatorio = pd.DataFrame(st.session_state.historico_leituras)
+            
+            # Mostra a tabela formatada
+            st.dataframe(df_relatorio, use_container_width=True)
+
+            # Botões de Ação
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Gerar Excel para download
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_relatorio.to_excel(writer, index=False, sheet_name='Leituras')
+                
+                st.download_button(
+                    label="📥 Baixar Relatório (XLSX)",
+                    data=output.getvalue(),
+                    file_name=f"relatorio_patrimonio_{tipo_etiqueta.lower()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+            with col2:
+                if st.button("🗑️ Limpar Lista Atual"):
+                    st.session_state.historico_leituras = []
+                    st.rerun()
 
     except Exception as e:
-        st.error(f"Erro ao processar o arquivo: {e}")
+        st.error(f"Erro ao processar o arquivo Excel: {e}")
 else:
-    st.error(f"⚠️ O arquivo `{arquivo_entrada}` não foi encontrado no repositório GitHub.")
-    st.warning("Certifique-se de que o arquivo Excel foi enviado (upload) para a mesma pasta do app.py no GitHub.")
+    st.error(f"Arquivo '{arquivo_entrada}' não encontrado no repositório.")
+    st.info("Suba o arquivo 'base_patrimonio.xlsx' para a mesma pasta deste app no GitHub.")
+
+# Instruções de rodapé
+st.markdown("---")
+st.caption("Instruções: 1. Certifique-se de que o arquivo Excel está na raiz. 2. Clique no campo de texto para focar o leitor Zebra. 3. O relatório será montado conforme você bipa.")
