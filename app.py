@@ -2,14 +2,21 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
-import zipfile  # Para agrupar múltiplos relatórios
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
+# --- CONFIGURAÇÃO E LISTA DE UNIDADES ---
 st.set_page_config(page_title="Inventory Pro", page_icon="📦", layout="centered")
 
+NOME_DAS_UNIDADES = [
+    "CLI-CONTAGEM BH", "CLI-CONTAGEM CTG", "CLI-TAPERA", "CLI-ARO",
+    "CLI-UNIVERSITÁRIO", "CLI-DEFENSORIA PÚBLICA", "CLI-TJ",
+    "CLI-INDAIA", "CEDIP", "GELOG-MG", "CLI-CAIXA"
+]
+
+# --- 1. CARREGAMENTO DA BASE MESTRE (COLUNAS B, C, E, F) ---
 @st.cache_data
 def carregar_base_mestre():
     try:
+        # Coluna B=1, C=2, E=4, F=5
         df = pd.read_excel("base_patrimonio.xlsx", engine='openpyxl', header=None)
         df_limpo = pd.DataFrame()
         df_limpo['pib_ref'] = df.iloc[:, 1].astype(str).str.strip().str.upper()
@@ -26,6 +33,7 @@ df_referencia = carregar_base_mestre()
 if 'lista_patrimonio' not in st.session_state:
     st.session_state['lista_patrimonio'] = []
 
+# --- 2. LÓGICA DE REGISTRO ---
 def registrar_item():
     pib_lido = str(st.session_state.campo_zebra).strip().upper()
     if pib_lido:
@@ -46,40 +54,58 @@ def registrar_item():
         })
         st.session_state.campo_zebra = ""
 
-# --- INTERFACE ---
-st.title("📦 Inventário por Localidade")
+# --- 3. INTERFACE ---
+st.title("📦 Inventário de Patrimônio")
 
-st.text_input("Aguardando leitura...", key="campo_zebra", on_change=registrar_item)
+st.text_input("Aguardando leitura (Scanner Zebra):", key="campo_zebra", on_change=registrar_item)
 
 if st.session_state['lista_patrimonio']:
     df_result = pd.DataFrame(st.session_state['lista_patrimonio'])
+    st.subheader(f"📋 Itens Coletados ({len(df_result)})")
     st.dataframe(df_result, use_container_width=True)
 
-    col1, col2 = st.columns(2)
+    st.divider()
+    
+    # --- 4. ÁREA DE DOWNLOAD E FILTRO ---
+    st.subheader("📥 Exportar Relatórios")
+    
+    col_geral, col_filtro = st.columns(2)
 
-    # OPÇÃO 1: Relatório Geral
-    with col1:
+    with col_geral:
+        st.markdown("**Opção 1: Tudo**")
         output_geral = BytesIO()
         with pd.ExcelWriter(output_geral, engine='xlsxwriter') as writer:
             df_result.to_excel(writer, index=False)
-        st.download_button("📥 Relatório Geral", output_geral.getvalue(), "geral.xlsx", use_container_width=True)
+        st.download_button(
+            label="Baixar Relatório Geral",
+            data=output_geral.getvalue(),
+            file_name="inventario_completo.xlsx",
+            use_container_width=True
+        )
 
-    # OPÇÃO 2: Relatórios Separados por Unidade (ZIP)
-    with col2:
-        buf = BytesIO()
-        with zipfile.ZipFile(buf, "a", zipfile.ZIP_DEFLATED, False) as zf:
-            # Para cada unidade única na lista, cria um Excel separado
-            unidades = df_result['Unidade'].unique()
-            for uni in unidades:
-                excel_uni = BytesIO()
-                df_uni = df_result[df_result['Unidade'] == uni]
-                with pd.ExcelWriter(excel_uni, engine='xlsxwriter') as writer:
-                    df_uni.to_excel(writer, index=False)
-                # Nomeia o arquivo com o código da unidade
-                zf.writestr(f"Relatorio_Unidade_{uni}.xlsx", excel_uni.getvalue())
+    with col_filtro:
+        st.markdown("**Opção 2: Por Unidade**")
+        unidade_selecionada = st.selectbox("Selecione a Unidade para filtrar:", NOME_DAS_UNIDADES)
         
-        st.download_button("🗂️ Relatórios por Unidade (ZIP)", buf.getvalue(), "relatorios_por_localidade.zip", use_container_width=True)
+        # Filtra os dados com base na seleção
+        df_filtrado = df_result[df_result['Unidade'] == unidade_selecionada]
+        
+        output_filtrado = BytesIO()
+        with pd.ExcelWriter(output_filtrado, engine='xlsxwriter') as writer:
+            df_filtrado.to_excel(writer, index=False)
+        
+        # Só habilita o download se houver itens para aquela unidade
+        if not df_filtrado.empty:
+            st.download_button(
+                label=f"Baixar Relatório: {unidade_selecionada}",
+                data=output_filtrado.getvalue(),
+                file_name=f"inventario_{unidade_selecionada.replace(' ', '_')}.xlsx",
+                use_container_width=True
+            )
+        else:
+            st.warning("Nenhum item desta unidade na lista atual.")
 
-if st.sidebar.button("Limpar"):
+# Sidebar
+if st.sidebar.button("🗑️ Limpar Lista"):
     st.session_state['lista_patrimonio'] = []
     st.rerun()
