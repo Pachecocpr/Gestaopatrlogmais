@@ -8,7 +8,7 @@ st.set_page_config(page_title="Inventory Pro", page_icon="📦", layout="wide")
 
 # Lista de unidades para a caixa de seleção (conforme seu primeiro código)
 NOME_DAS_UNIDADES = [
-    " ", "CLI EXTREMA", 
+    " ", "CLI EFULFILLMENT EXTREMA", 
 "CLI CONTAGEM", "CLI BELO HORIZONTE/DR/MG", 
 "CLI TAPERA", "CLI ARO",
     "CLI UNIVERSITARIO", "CLI DEFENSORIA PUBLICA DE MG", 
