@@ -10,7 +10,7 @@ st.set_page_config(page_title="Inventory Pro", page_icon="📦", layout="wide")
 NOME_DAS_UNIDADES = [
     "CLI CONTAGEM", "CLI BELO HORIZONTE/DR/MG", 
 "CLI TAPERA", "CLI ARO",
-    "CLI UNIVERSITARIO", "CLI DEFENSORIA PUBLICA", 
+    "CLI UNIVERSITARIO", "CLI DEFENSORIA PUBLICA DE MG", 
 "CLI TJ MG", "GELOG MG",
     "CLI INDAIA", "CEDIP", "GELOG MG", 
 "CLI CAIXA"
