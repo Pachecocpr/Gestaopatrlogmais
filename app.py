@@ -6,33 +6,29 @@ from io import BytesIO
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Inventory Pro", page_icon="📦", layout="wide")
 
-# Lista de unidades para a caixa de seleção (conforme seu primeiro código)
+# Lista de unidades para a caixa de seleção
 NOME_DAS_UNIDADES = [
-    " ", "CLI EFULFILLMENT EXTREMA", 
-"CDIP BELO HORIZONTE", 
-"CLI CONTAGEM", "CLI BELO HORIZONTE/DR/MG", 
-"CLI TAPERA", "CLI ARMAZEM DE RECURSOS",
-    "CLI UNIVERSITARIO", "CLI DEFENSORIA PUBLICA DE MG", "CLI MONTES CLAROS", 
-"CLI UBERLANDIA", "CLI VARGINHA", 
-"CLI TJ MG", "GER REG LOGISTICA/COOER","CLI SMS CONTAGEM", "SEC ADMINISTRATIVA/GELOG", 
-"SUB GEST OPER LOGISTICA/GELOG", 
-"SUB PLAN DE LOGISTICA/GELOG", 
-
-    "CLI INDAIA", 
-"CLI CAIXA ECONOMICA FEDERAL"
+    "CLI-CONTAGEM BH", "CLI-CONTAGEM CTG", "CLI-TAPERA", "CLI-ARO",
+    "CLI-UNIVERSITÁRIO", "CLI-DEFENSORIA PÚBLICA", "CLI-TJ",
+    "CLI-INDAIA", "CEDIP", "GELOG-MG", "CLI-CAIXA"
 ]
 
-# --- 1. CARREGAMENTO DA BASE MESTRE ---
+# --- 1. CARREGAMENTO DA BASE MESTRE (COLUNAS B, C, E, F, J) ---
 @st.cache_data
 def carregar_base_mestre():
     try:
-        # Carrega colunas B(1), C(2), E(4) e F(5)
+        # Carrega as colunas necessárias: 
+        # B=1 (PIB), C=2 (Desc), E=4 (Local), F=5 (Unidade), J=9 (Status)
         df = pd.read_excel("base_patrimonio.xlsx", engine='openpyxl', header=None)
+        
         df_limpo = pd.DataFrame()
         df_limpo['pib_ref'] = df.iloc[:, 1].astype(str).str.strip().str.upper()
         df_limpo['desc_ref'] = df.iloc[:, 2].astype(str).str.strip()
         df_limpo['cod_local_ref'] = df.iloc[:, 4].astype(str).str.strip()
         df_limpo['unidade_ref'] = df.iloc[:, 5].astype(str).str.strip()
+        # Adicionando a Coluna J (Índice 9) -> Status
+        df_limpo['status_ref'] = df.iloc[:, 9].astype(str).str.strip()
+        
         return df_limpo
     except Exception as e:
         st.error(f"Erro ao carregar base_patrimonio.xlsx: {e}")
@@ -48,32 +44,42 @@ if 'lista_inventario' not in st.session_state:
 def registrar_item_zebra():
     pib_lido = str(st.session_state.campo_zebra).strip().upper()
     if pib_lido:
-        info = {"Descrição": "NÃO LOCALIZADO", "Cód. Local": "---", "Unidade": "---"}
+        info = {
+            "Descrição": "NÃO LOCALIZADO", 
+            "Cód. Local": "---", 
+            "Unidade": "---",
+            "Status": "---"
+        }
+        
         if df_referencia is not None:
             res = df_referencia[df_referencia['pib_ref'] == pib_lido]
             if not res.empty:
-                info = {"Descrição": res.iloc[0]['desc_ref'], 
-                        "Cód. Local": res.iloc[0]['cod_local_ref'], 
-                        "Unidade": res.iloc[0]['unidade_ref']}
+                info = {
+                    "Descrição": res.iloc[0]['desc_ref'], 
+                    "Cód. Local": res.iloc[0]['cod_local_ref'], 
+                    "Unidade": res.iloc[0]['unidade_ref'],
+                    "Status": res.iloc[0]['status_ref']
+                }
         
         st.session_state['lista_inventario'].insert(0, {
             "Data/Hora": datetime.now().strftime("%H:%M:%S"),
             "PIB": pib_lido,
             "Descrição": info["Descrição"],
             "Cód. Local": info["Cód. Local"],
-            "Unidade Base": info["Unidade"]
+            "Unidade Base": info["Unidade"],
+            "Status": info["Status"]
         })
         st.session_state.campo_zebra = ""
 
 # --- 3. INTERFACE ---
-st.title("📊 Sistema de Gestão de Patrimônio")
+st.title("📊 Gestão de Patrimônio & Status")
 
-tab1, tab2 = st.tabs(["🔍 Inventário (Leitor Zebra)", "🏢 Relatório por Unidade"])
+tab1, tab2 = st.tabs(["🔍 Inventário Ativo (Zebra)", "🏢 Relatório por Unidade"])
 
-# --- TAB 1: INVENTÁRIO ATIVO ---
+# --- TAB 1: INVENTÁRIO ATIVO (ZEBRA) ---
 with tab1:
-    st.subheader("Leitura em Tempo Real")
-    st.text_input("Bipe o item:", key="campo_zebra", on_change=registrar_item_zebra)
+    st.subheader("Leitura com Coletor")
+    st.text_input("Bipe o item aqui:", key="campo_zebra", on_change=registrar_item_zebra)
     
     if st.session_state['lista_inventario']:
         df_inv = pd.DataFrame(st.session_state['lista_inventario'])
@@ -82,35 +88,44 @@ with tab1:
         output_inv = BytesIO()
         with pd.ExcelWriter(output_inv, engine='xlsxwriter') as writer:
             df_inv.to_excel(writer, index=False)
-        st.download_button("📥 Baixar Inventário Atual", output_inv.getvalue(), "inventario_zebra.xlsx")
+        st.download_button(
+            label="📥 Baixar Inventário (Com Status)", 
+            data=output_inv.getvalue(), 
+            file_name="inventario_zebra_status.xlsx",
+            use_container_width=True
+        )
 
-# --- TAB 2: RELATÓRIO DA BASE POR UNIDADE ---
+# --- TAB 2: RELATÓRIO DA BASE POR UNIDADE (FILTRO DIRETO) ---
 with tab2:
-    st.subheader("Gerar Relatório Completo da Unidade")
-    unidade_sel = st.selectbox("Selecione a Unidade desejada:", NOME_DAS_UNIDADES)
+    st.subheader("Consulta da Base por Unidade")
+    unidade_sel = st.selectbox("Selecione a Unidade:", NOME_DAS_UNIDADES)
     
     if df_referencia is not None:
-        # Filtra a base original pela unidade selecionada (Coluna F)
+        # Filtra a base pela unidade selecionada
         df_unidade = df_referencia[df_referencia['unidade_ref'] == unidade_sel]
         
-        st.write(f"Itens encontrados para **{unidade_sel}**: {len(df_unidade)}")
-        st.dataframe(df_unidade, use_container_width=True)
+        st.info(f"Encontrados **{len(df_unidade)}** itens em **{unidade_sel}**")
         
-        if not df_unidade.empty:
+        # Ajustando nomes das colunas para exibição amigável
+        df_display = df_unidade.copy()
+        df_display.columns = ['PIB', 'Descrição', 'Cód. Local', 'Unidade', 'Status']
+        
+        st.dataframe(df_display, use_container_width=True)
+        
+        if not df_display.empty:
             output_uni = BytesIO()
             with pd.ExcelWriter(output_uni, engine='xlsxwriter') as writer:
-                df_unidade.to_excel(writer, index=False, header=['PIB', 'Descrição', 'Cód. Local', 'Unidade'])
+                df_display.to_excel(writer, index=False)
             
             st.download_button(
                 label=f"📥 Baixar Relatório Completo: {unidade_sel}",
                 data=output_uni.getvalue(),
-                file_name=f"base_{unidade_sel.replace(' ', '_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                file_name=f"base_{unidade_sel.replace(' ', '_')}_status.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
-        else:
-            st.warning("Nenhum item encontrado para esta unidade na base de dados.")
 
-# Sidebar
+# --- SIDEBAR: LIMPEZA ---
 if st.sidebar.button("🗑️ Limpar Inventário (Zebra)"):
     st.session_state['lista_inventario'] = []
     st.rerun()
