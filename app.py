@@ -90,7 +90,7 @@ def registrar_item_zebra():
         st.session_state.campo_zebra = ""
 
 # --- 3. INTERFACE ---
-st.title("📊 Gestão de Patrimônio & Status")
+st.title("📊 Gestão de Patrimônio")
 
 tab1, tab2 = st.tabs(["🔍 Inventário Ativo (Zebra)", "🏢 Relatório por Unidade"])
 
