@@ -34,7 +34,7 @@ def tocar_som(tipo="sucesso"):
     """
     st.components.v1.html(audio_html, height=0)
 
-# --- FUNÇÕES DE PERSISTÊNCIA (ANTI-PERDA) ---
+# --- FUNÇÕES DE PERSISTÊNCIA ---
 def salvar_no_disco(df):
     df.to_csv(ARQUIVO_BACKUP, index=False, encoding='utf-8-sig')
 
@@ -64,18 +64,25 @@ def carregar_base_mestre():
 
 df_referencia = carregar_base_mestre()
 
-# Inicialização com recuperação de backup
 if 'lista_inventario' not in st.session_state:
     df_recuperado = carregar_do_disco()
     st.session_state['lista_inventario'] = df_recuperado.to_dict('records')
 
-# --- 2. LÓGICA DO INVENTÁRIO (ZEBRA) ---
+# --- 2. LÓGICA DO INVENTÁRIO COM TRAVA DE DUPLICIDADE ---
 def registrar_item_zebra():
     pib_lido = str(st.session_state.campo_zebra).strip().upper()
+    
     if pib_lido:
-        tipo_etiqueta_atual = st.session_state.tipo_etiqueta_sel
+        # --- VERIFICAÇÃO DE DUPLICIDADE ---
+        pibs_ja_lidos = [item['PIB'] for item in st.session_state['lista_inventario']]
         
-        # Ajuste de hora
+        if pib_lido in pibs_ja_lidos:
+            st.toast(f"⚠️ O item {pib_lido} já foi lido anteriormente!", icon="🚫")
+            tocar_som("erro")
+            st.session_state.campo_zebra = ""
+            return # Interrompe a função aqui para não duplicar
+        
+        tipo_etiqueta_atual = st.session_state.tipo_etiqueta_sel
         fuso_br = pytz.timezone('America/Sao_Paulo')
         hora_atual = datetime.now(fuso_br).strftime("%H:%M:%S")
         
@@ -93,12 +100,10 @@ def registrar_item_zebra():
                 }
                 achou = True
         
-        # Tocar som
         tocar_som("sucesso" if achou else "erro")
         
-        # Inserir na lista
         st.session_state['lista_inventario'].insert(0, {
-            "Item": 0, # Placeholder, será recalculado
+            "Item": 0,
             "Hora": hora_atual,
             "PIB": pib_lido,
             "Descrição": info["Descrição"],
@@ -108,14 +113,12 @@ def registrar_item_zebra():
             "Etiqueta": tipo_etiqueta_atual
         })
         
-        # Salvar Backup
         df_para_salvar = pd.DataFrame(st.session_state['lista_inventario'])
         salvar_no_disco(df_para_salvar)
-        
         st.session_state.campo_zebra = ""
 
 # --- 3. INTERFACE ---
-st.title("📊 Gestão de Patrimônio Safe + 🔊")
+st.title("📊 Gestão de Patrimônio Safe (Sem Duplicados)")
 
 tab1, tab2 = st.tabs(["🔍 Inventário Ativo (Zebra)", "🏢 Relatório por Unidade"])
 
@@ -127,11 +130,9 @@ with tab1:
     if st.session_state['lista_inventario']:
         df_inv = pd.DataFrame(st.session_state['lista_inventario'])
         
-        # Recalcular numeração correta
         total_itens = len(df_inv)
         df_inv['Item'] = range(total_itens, 0, -1)
         
-        # Reordenar colunas
         cols = ['Item'] + [c for c in df_inv.columns if c != 'Item']
         df_inv = df_inv[cols]
 
@@ -142,7 +143,7 @@ with tab1:
             df_inv.to_excel(writer, index=False, sheet_name='Inventario')
             
         st.download_button(
-            label="📥 Baixar Inventário Completo", 
+            label="📥 Baixar Inventário", 
             data=output_inv.getvalue(), 
             file_name=f"inventario_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
             use_container_width=True
@@ -161,10 +162,8 @@ with tab2:
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Configurações")
-    if st.button("🗑️ Limpar Inventário (Apagar Backup)"):
+    if st.button("🗑️ Limpar Inventário"):
         if os.path.exists(ARQUIVO_BACKUP):
             os.remove(ARQUIVO_BACKUP)
         st.session_state['lista_inventario'] = []
         st.rerun()
-    st.write("---")
-    st.caption("O backup automático evita perda de dados ao atualizar a página.")
