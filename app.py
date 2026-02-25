@@ -1,11 +1,14 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import pytz  # Necessário para o fuso horário
+import pytz
 from io import BytesIO
+import os
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Inventory Pro", page_icon="📦", layout="wide")
+st.set_page_config(page_title="Inventory Pro Safe", page_icon="📦", layout="wide")
+
+ARQUIVO_BACKUP = "inventario_backup.csv"
 
 # Lista de unidades
 NOME_DAS_UNIDADES = [
@@ -16,6 +19,32 @@ NOME_DAS_UNIDADES = [
     "GER REG LOGISTICA/COPER", "SUB GEST OPER LOGISTICA/GELOG", 
     "SUB PLAN DE LOGISTICA/GELOG", "SEC ADMINISTRATIVA/GELOG", "CLI ARMAZEM DE RECURSOS"
 ]
+
+# --- FUNÇÃO PARA O SOM (BEEP) ---
+def tocar_som(tipo="sucesso"):
+    if tipo == "sucesso":
+        audio_url = "https://catalog.botreetechnologies.com/sounds/success.mp3"
+    else:
+        audio_url = "https://catalog.botreetechnologies.com/sounds/error.mp3"
+    
+    audio_html = f"""
+        <audio autoplay>
+            <source src="{audio_url}" type="audio/mp3">
+        </audio>
+    """
+    st.components.v1.html(audio_html, height=0)
+
+# --- FUNÇÕES DE PERSISTÊNCIA (ANTI-PERDA) ---
+def salvar_no_disco(df):
+    df.to_csv(ARQUIVO_BACKUP, index=False, encoding='utf-8-sig')
+
+def carregar_do_disco():
+    if os.path.exists(ARQUIVO_BACKUP):
+        try:
+            return pd.read_csv(ARQUIVO_BACKUP, encoding='utf-8-sig')
+        except:
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 # --- 1. CARREGAMENTO DA BASE MESTRE ---
 @st.cache_data
@@ -35,8 +64,10 @@ def carregar_base_mestre():
 
 df_referencia = carregar_base_mestre()
 
+# Inicialização com recuperação de backup
 if 'lista_inventario' not in st.session_state:
-    st.session_state['lista_inventario'] = []
+    df_recuperado = carregar_do_disco()
+    st.session_state['lista_inventario'] = df_recuperado.to_dict('records')
 
 # --- 2. LÓGICA DO INVENTÁRIO (ZEBRA) ---
 def registrar_item_zebra():
@@ -44,11 +75,12 @@ def registrar_item_zebra():
     if pib_lido:
         tipo_etiqueta_atual = st.session_state.tipo_etiqueta_sel
         
-        # AJUSTE DE HORA: Define fuso horário de Brasília
+        # Ajuste de hora
         fuso_br = pytz.timezone('America/Sao_Paulo')
         hora_atual = datetime.now(fuso_br).strftime("%H:%M:%S")
         
         info = {"Descrição": "NÃO LOCALIZADO", "Cód. Local": "---", "Unidade": "---", "Status": "---"}
+        achou = False
         
         if df_referencia is not None:
             res = df_referencia[df_referencia['pib_ref'] == pib_lido]
@@ -59,10 +91,14 @@ def registrar_item_zebra():
                     "Unidade": res.iloc[0]['unidade_ref'],
                     "Status": res.iloc[0]['status_ref']
                 }
+                achou = True
         
-        # Adiciona à lista
+        # Tocar som
+        tocar_som("sucesso" if achou else "erro")
+        
+        # Inserir na lista
         st.session_state['lista_inventario'].insert(0, {
-            "Item": len(st.session_state['lista_inventario']) + 1, # Será corrigido na exibição para ser sequencial
+            "Item": 0, # Placeholder, será recalculado
             "Hora": hora_atual,
             "PIB": pib_lido,
             "Descrição": info["Descrição"],
@@ -71,10 +107,15 @@ def registrar_item_zebra():
             "Status": info["Status"],
             "Etiqueta": tipo_etiqueta_atual
         })
+        
+        # Salvar Backup
+        df_para_salvar = pd.DataFrame(st.session_state['lista_inventario'])
+        salvar_no_disco(df_para_salvar)
+        
         st.session_state.campo_zebra = ""
 
 # --- 3. INTERFACE ---
-st.title("📊 Gestão de Patrimônio & Status")
+st.title("📊 Gestão de Patrimônio Safe + 🔊")
 
 tab1, tab2 = st.tabs(["🔍 Inventário Ativo (Zebra)", "🏢 Relatório por Unidade"])
 
@@ -84,32 +125,29 @@ with tab1:
     st.text_input("Bipe o item aqui:", key="campo_zebra", on_change=registrar_item_zebra)
     
     if st.session_state['lista_inventario']:
-        # Criamos o DataFrame para manipulação
         df_inv = pd.DataFrame(st.session_state['lista_inventario'])
         
-        # AJUSTE DE NUMERAÇÃO: Recalcula a coluna 'Item' para começar de 1 até o total, de cima para baixo
+        # Recalcular numeração correta
         total_itens = len(df_inv)
         df_inv['Item'] = range(total_itens, 0, -1)
         
-        # Reordenar colunas para 'Item' ser a primeira
+        # Reordenar colunas
         cols = ['Item'] + [c for c in df_inv.columns if c != 'Item']
         df_inv = df_inv[cols]
 
-        st.dataframe(df_inv, use_container_width=True, hide_index=True) # hide_index remove a coluna 0 do Streamlit
+        st.dataframe(df_inv, use_container_width=True, hide_index=True)
         
         output_inv = BytesIO()
         with pd.ExcelWriter(output_inv, engine='xlsxwriter') as writer:
-            # index=False remove a coluna 0 no Excel gerado
             df_inv.to_excel(writer, index=False, sheet_name='Inventario')
             
         st.download_button(
-            label="📥 Baixar Inventário (Com Hora e Numeração Corretas)", 
+            label="📥 Baixar Inventário Completo", 
             data=output_inv.getvalue(), 
-            file_name="inventario_zebra_corrigido.xlsx",
+            file_name=f"inventario_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
             use_container_width=True
         )
 
-# --- ABA 2 (MANTIDA) ---
 with tab2:
     st.subheader("Consulta da Base por Unidade")
     unidade_sel = st.selectbox("Selecione a Unidade:", NOME_DAS_UNIDADES)
@@ -121,6 +159,12 @@ with tab2:
         st.dataframe(df_display, use_container_width=True, hide_index=True)
 
 # --- SIDEBAR ---
-if st.sidebar.button("🗑️ Limpar Inventário"):
-    st.session_state['lista_inventario'] = []
-    st.rerun()
+with st.sidebar:
+    st.header("Configurações")
+    if st.button("🗑️ Limpar Inventário (Apagar Backup)"):
+        if os.path.exists(ARQUIVO_BACKUP):
+            os.remove(ARQUIVO_BACKUP)
+        st.session_state['lista_inventario'] = []
+        st.rerun()
+    st.write("---")
+    st.caption("O backup automático evita perda de dados ao atualizar a página.")
