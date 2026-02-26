@@ -14,7 +14,7 @@ from email import encoders
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 EMAIL_REMETENTE = "inventatioautomatico@gmail.com"
-SENHA_DE_APP = "fnnyszccqjlpcsiv"  # Senha de app configurada
+SENHA_DE_APP = "fnny szcc qjlp csiv"  # Senha de app configurada
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Inventory Pro Safe", page_icon="📦", layout="wide")
