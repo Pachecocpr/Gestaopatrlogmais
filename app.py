@@ -13,7 +13,7 @@ from email import encoders
 # --- CONFIGURAÇÕES DE E-MAIL (ATUALIZADAS) ---
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-EMAIL_REMETENTE = "inventatioautomatico@gmail.com"
+EMAIL_REMETENTE = "inventarioautomatico@gmail.com"
 SENHA_DE_APP = "fnny szcc qjlp csiv"  # Senha de app configurada
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
