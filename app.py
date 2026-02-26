@@ -132,8 +132,6 @@ with st.sidebar:
         if os.path.exists(ARQUIVO_BACKUP): os.remove(ARQUIVO_BACKUP)
         st.session_state['lista_inventario'] = []
         st.rerun()
-    st.divider()
-    st.caption("v2.0 - Anti-perda & Multi-email ativado")
 
 tab1, tab2 = st.tabs(["🔍 Coletor Zebra", "🏢 Relatório por Unidade"])
 
@@ -148,8 +146,8 @@ with tab1:
         df_v['Item'] = range(len(df_v), 0, -1)
         cols = ['Item', 'Hora', 'PIB', 'Descrição', 'Cód. Local', 'Status', 'Etiqueta']
         
-        st.dataframe(df_v[cols], use_container_width=True, hide_index=True)
-
+        # --- BLOCO DE AÇÕES SUPERIOR ---
+        st.markdown("---")
         c1, c2 = st.columns(2)
         with c1:
             buffer_dl = BytesIO()
@@ -158,12 +156,16 @@ with tab1:
             st.download_button("📥 Baixar Inventário (Excel)", buffer_dl.getvalue(), "inventario_atual.xlsx", use_container_width=True)
         
         with c2:
-            email_inv = st.text_input("E-mail para enviar inventário:", key="email_inv")
-            if st.button("📧 Enviar Inventário por E-mail", use_container_width=True):
+            col_email_txt, col_email_btn = st.columns([2, 1])
+            email_inv = col_email_txt.text_input("E-mail para envio:", key="email_inv", placeholder="ex@email.com", label_visibility="collapsed")
+            if col_email_btn.button("📧 Enviar", use_container_width=True):
                 if email_inv:
                     if enviar_relatorio_email(email_inv, df_v[cols], "Relatório de Inventário Atual"):
-                        st.success("Inventário enviado!")
+                        st.success("Enviado!")
                 else: st.warning("Informe o e-mail.")
+        st.markdown("---")
+
+        st.dataframe(df_v[cols], use_container_width=True, hide_index=True)
 
 # --- ABA 2: RELATÓRIO POR UNIDADE ---
 with tab2:
@@ -174,16 +176,12 @@ with tab2:
         df_u = df_referencia[df_referencia['unidade_ref'] == unidade_sel]
         
         if not df_u.empty:
-            st.write(f"Itens encontrados na base: **{len(df_u)}**")
-            # Ajuste de nomes para exibição
             df_u_show = df_u.copy()
             df_u_show.columns = ['PIB', 'Descrição', 'Cód. Local', 'Unidade', 'Status']
-            st.dataframe(df_u_show, use_container_width=True, hide_index=True)
-
-            # Botões de Download e E-mail específicos para esta aba
-            st.divider()
-            col_u1, col_u2 = st.columns(2)
             
+            # --- BLOCO DE AÇÕES SUPERIOR ---
+            st.markdown("---")
+            col_u1, col_u2 = st.columns(2)
             with col_u1:
                 buffer_uni = BytesIO()
                 with pd.ExcelWriter(buffer_uni, engine='xlsxwriter') as writer:
@@ -191,11 +189,16 @@ with tab2:
                 st.download_button(f"📥 Baixar Base: {unidade_sel}", buffer_uni.getvalue(), f"base_{unidade_sel}.xlsx", use_container_width=True)
             
             with col_u2:
-                email_uni = st.text_input(f"E-mail para enviar base {unidade_sel}:", key="email_uni")
-                if st.button(f"📧 Enviar Base {unidade_sel} por E-mail", use_container_width=True):
+                col_email_uni_txt, col_email_uni_btn = st.columns([2, 1])
+                email_uni = col_email_uni_txt.text_input("E-mail destino:", key="email_uni", placeholder="ex@email.com", label_visibility="collapsed")
+                if col_email_uni_btn.button("📧 Enviar Base", use_container_width=True):
                     if email_uni:
                         if enviar_relatorio_email(email_uni, df_u_show, f"Relatório de Base - {unidade_sel}"):
-                            st.success(f"Base de {unidade_sel} enviada!")
+                            st.success(f"Base enviada!")
                     else: st.warning("Informe o e-mail.")
+            st.markdown("---")
+
+            st.write(f"Itens encontrados: **{len(df_u)}**")
+            st.dataframe(df_u_show, use_container_width=True, hide_index=True)
         else:
-            st.info("Nenhum item encontrado para esta unidade na base mestre.")
+            st.info("Nenhum item encontrado para esta unidade.")
