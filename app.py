@@ -19,8 +19,6 @@ SENHA_DE_APP = "fnny szcc qjlp csiv"
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Inventory Pro Safe", page_icon="📦", layout="wide")
 
-ARQUIVO_BACKUP = "inventario_backup.csv"
-
 # Lista de unidades
 NOME_DAS_UNIDADES = [
     " ", "CLI BELO HORIZONTE/DR/MG", "CLI TJ MG", "CLI SMS CONTAGEM", 
@@ -31,7 +29,23 @@ NOME_DAS_UNIDADES = [
     "SUB PLAN DE LOGISTICA/GELOG", "SEC ADMINISTRATIVA/GELOG", "CLI ARMAZEM DE RECURSOS"
 ]
 
-# --- FUNÇÃO GERAL DE ENVIO DE E-MAIL ---
+# --- SIDEBAR: IDENTIFICAÇÃO E FERRAMENTAS ---
+with st.sidebar:
+    st.header("👤 Usuário")
+    # Identificador único para tornar o backup "privado" para este usuário/aparelho
+    usuario_id = st.text_input("Identificador do Conferente:", value="Padrao", help="Digite seu nome ou ID para manter seu backup isolado.").strip().lower()
+    ARQUIVO_BACKUP = f"backup_{usuario_id}.csv"
+    
+    st.divider()
+    st.header("⚙️ Ferramentas")
+    if st.button("🗑️ Limpar MEU Backup"):
+        if os.path.exists(ARQUIVO_BACKUP):
+            os.remove(ARQUIVO_BACKUP)
+        st.session_state['lista_inventario'] = []
+        st.rerun()
+    st.caption(f"Arquivo atual: {ARQUIVO_BACKUP}")
+
+# --- FUNÇÕES DE APOIO (SOM E E-MAIL) ---
 def enviar_relatorio_email(destinatario, df_dados, titulo_relatorio):
     try:
         buffer = BytesIO()
@@ -43,13 +57,13 @@ def enviar_relatorio_email(destinatario, df_dados, titulo_relatorio):
         msg['To'] = destinatario
         msg['Subject'] = f"{titulo_relatorio} - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
         
-        corpo = f"Segue em anexo o {titulo_relatorio}.\nTotal de registros: {len(df_dados)}"
+        corpo = f"Relatório enviado por: {usuario_id.upper()}\nTotal de registros: {len(df_dados)}"
         msg.attach(MIMEText(corpo, 'plain'))
         
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(buffer.getvalue())
         encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f"attachment; filename= relatorio_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
+        part.add_header('Content-Disposition', f"attachment; filename= relatorio_{usuario_id}_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
         msg.attach(part)
         
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
@@ -62,7 +76,6 @@ def enviar_relatorio_email(destinatario, df_dados, titulo_relatorio):
         st.error(f"Erro ao enviar e-mail: {e}")
         return False
 
-# --- FUNÇÃO PARA O SOM (BEEP) ---
 def tocar_som(tipo="sucesso"):
     src = "https://www.soundjay.com/buttons/sounds/button-37.mp3" if tipo == "sucesso" else "https://www.soundjay.com/buttons/sounds/button-10.mp3"
     audio_html = f"""
@@ -71,7 +84,7 @@ def tocar_som(tipo="sucesso"):
     """
     st.components.v1.html(audio_html, height=0)
 
-# --- PERSISTÊNCIA ---
+# --- LÓGICA DE PERSISTÊNCIA ---
 def salvar_no_disco(df):
     df.to_csv(ARQUIVO_BACKUP, index=False, encoding='utf-8-sig')
 
@@ -81,7 +94,7 @@ def carregar_do_disco():
         except: return pd.DataFrame()
     return pd.DataFrame()
 
-# --- CARREGAMENTO BASE ---
+# --- CARREGAMENTO DA BASE MESTRE ---
 @st.cache_data
 def carregar_base_mestre():
     try:
@@ -97,11 +110,13 @@ def carregar_base_mestre():
 
 df_referencia = carregar_base_mestre()
 
-if 'lista_inventario' not in st.session_state:
+# Inicializa ou troca de usuário (recupera backup específico)
+if 'usuario_atual' not in st.session_state or st.session_state['usuario_atual'] != usuario_id:
     df_rec = carregar_do_disco()
     st.session_state['lista_inventario'] = df_rec.to_dict('records')
+    st.session_state['usuario_atual'] = usuario_id
 
-# --- LÓGICA DE REGISTRO ---
+# --- LÓGICA DE REGISTRO (ZEBRA) ---
 def registrar_item_zebra():
     pib = str(st.session_state.campo_zebra).strip().upper()
     if pib:
@@ -116,60 +131,60 @@ def registrar_item_zebra():
             if df_referencia is not None:
                 res = df_referencia[df_referencia['pib_ref'] == pib]
                 if not res.empty:
-                    info = {"Descrição": res.iloc[0]['desc_ref'], "Cód. Local": res.iloc[0]['cod_local_ref'], "Unidade": res.iloc[0]['unidade_ref'], "Status": res.iloc[0]['status_ref']}
+                    info = {"Descrição": res.iloc[0]['desc_ref'], "Cód. Local": res.iloc[0]['cod_local_ref'], 
+                            "Unidade": res.iloc[0]['unidade_ref'], "Status": res.iloc[0]['status_ref']}
                     achou = True
+            
             tocar_som("sucesso" if achou else "erro")
-            st.session_state['lista_inventario'].insert(0, {"Item": 0, "Hora": datetime.now(fuso).strftime("%H:%M:%S"), "PIB": pib, "Descrição": info["Descrição"], "Cód. Local": info["Cód. Local"], "Unidade Base": info["Unidade"], "Status": info["Status"], "Etiqueta": st.session_state.tipo_etiqueta_sel})
+            st.session_state['lista_inventario'].insert(0, {
+                "Item": 0, "Hora": datetime.now(fuso).strftime("%H:%M:%S"), "PIB": pib, 
+                "Descrição": info["Descrição"], "Cód. Local": info["Cód. Local"], 
+                "Unidade Base": info["Unidade"], "Status": info["Status"], 
+                "Etiqueta": st.session_state.tipo_etiqueta_sel
+            })
             salvar_no_disco(pd.DataFrame(st.session_state['lista_inventario']))
     st.session_state.campo_zebra = ""
 
-# --- INTERFACE ---
-st.title("📊 Gestão de Patrimônio Safe")
-
-with st.sidebar:
-    st.header("⚙️ Ferramentas")
-    if st.button("🗑️ Limpar Backup/Zerar Tudo"):
-        if os.path.exists(ARQUIVO_BACKUP): os.remove(ARQUIVO_BACKUP)
-        st.session_state['lista_inventario'] = []
-        st.rerun()
+# --- INTERFACE PRINCIPAL ---
+st.title(f"📊 Gestão de Patrimônio - Usuário: {usuario_id.upper()}")
 
 tab1, tab2 = st.tabs(["🔍 Coletor Zebra", "🏢 Relatório por Unidade"])
 
-# --- ABA 1: COLETOR ---
+# ABA 1: COLETOR
 with tab1:
     col_r, col_i = st.columns([1, 2])
-    col_r.radio("Etiqueta:", ["Papel", "Metal"], key="tipo_etiqueta_sel", horizontal=True)
-    col_i.text_input("Bipe aqui:", key="campo_zebra", on_change=registrar_item_zebra)
+    col_r.radio("Tipo de Etiqueta:", ["Papel", "Metal"], key="tipo_etiqueta_sel", horizontal=True)
+    col_i.text_input("Bipe o item aqui:", key="campo_zebra", on_change=registrar_item_zebra, placeholder="Aguardando leitura...")
     
     if st.session_state['lista_inventario']:
         df_v = pd.DataFrame(st.session_state['lista_inventario'])
         df_v['Item'] = range(len(df_v), 0, -1)
-        cols = ['Item', 'Hora', 'PIB', 'Descrição', 'Cód. Local', 'Status', 'Etiqueta']
+        cols_ordem = ['Item', 'Hora', 'PIB', 'Descrição', 'Cód. Local', 'Status', 'Etiqueta']
         
-        # --- BLOCO DE AÇÕES SUPERIOR ---
+        # --- BLOCO DE AÇÕES SUPERIOR (DOWNLOAD E EMAIL) ---
         st.markdown("---")
         c1, c2 = st.columns(2)
         with c1:
             buffer_dl = BytesIO()
             with pd.ExcelWriter(buffer_dl, engine='xlsxwriter') as writer:
-                df_v[cols].to_excel(writer, index=False)
-            st.download_button("📥 Baixar Inventário (Excel)", buffer_dl.getvalue(), "inventario_atual.xlsx", use_container_width=True)
+                df_v[cols_ordem].to_excel(writer, index=False)
+            st.download_button("📥 Baixar Meu Inventário (Excel)", buffer_dl.getvalue(), f"inventario_{usuario_id}.xlsx", use_container_width=True)
         
         with c2:
-            col_email_txt, col_email_btn = st.columns([2, 1])
-            email_inv = col_email_txt.text_input("E-mail para envio:", key="email_inv", placeholder="ex@email.com", label_visibility="collapsed")
-            if col_email_btn.button("📧 Enviar", use_container_width=True):
+            col_mail_txt, col_mail_btn = st.columns([2, 1])
+            email_inv = col_mail_txt.text_input("E-mail para envio:", key="email_inv", placeholder="destinatario@email.com", label_visibility="collapsed")
+            if col_mail_btn.button("📧 Enviar Inventário", use_container_width=True):
                 if email_inv:
-                    if enviar_relatorio_email(email_inv, df_v[cols], "Relatório de Inventário Atual"):
-                        st.success("Enviado!")
+                    if enviar_relatorio_email(email_inv, df_v[cols_ordem], f"Inventário de {usuario_id.upper()}"):
+                        st.success("Enviado com sucesso!")
                 else: st.warning("Informe o e-mail.")
         st.markdown("---")
 
-        st.dataframe(df_v[cols], use_container_width=True, hide_index=True)
+        st.dataframe(df_v[cols_ordem], use_container_width=True, hide_index=True)
 
-# --- ABA 2: RELATÓRIO POR UNIDADE ---
+# ABA 2: RELATÓRIO POR UNIDADE
 with tab2:
-    st.subheader("Extrair Dados da Base por Unidade")
+    st.subheader("Consulta da Base Mestre")
     unidade_sel = st.selectbox("Selecione a Unidade:", NOME_DAS_UNIDADES)
     
     if df_referencia is not None:
@@ -189,16 +204,16 @@ with tab2:
                 st.download_button(f"📥 Baixar Base: {unidade_sel}", buffer_uni.getvalue(), f"base_{unidade_sel}.xlsx", use_container_width=True)
             
             with col_u2:
-                col_email_uni_txt, col_email_uni_btn = st.columns([2, 1])
-                email_uni = col_email_uni_txt.text_input("E-mail destino:", key="email_uni", placeholder="ex@email.com", label_visibility="collapsed")
-                if col_email_uni_btn.button("📧 Enviar Base", use_container_width=True):
+                col_mail_u_txt, col_mail_u_btn = st.columns([2, 1])
+                email_uni = col_mail_u_txt.text_input("E-mail destino:", key="email_uni", placeholder="destinatario@email.com", label_visibility="collapsed")
+                if col_mail_u_btn.button(f"📧 Enviar Base {unidade_sel}", use_container_width=True):
                     if email_uni:
                         if enviar_relatorio_email(email_uni, df_u_show, f"Relatório de Base - {unidade_sel}"):
-                            st.success(f"Base enviada!")
+                            st.success(f"Base de {unidade_sel} enviada!")
                     else: st.warning("Informe o e-mail.")
             st.markdown("---")
 
-            st.write(f"Itens encontrados: **{len(df_u)}**")
+            st.write(f"Total de itens na base desta unidade: **{len(df_u)}**")
             st.dataframe(df_u_show, use_container_width=True, hide_index=True)
         else:
-            st.info("Nenhum item encontrado para esta unidade.")
+            st.info("Nenhum item cadastrado para esta unidade.")
