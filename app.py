@@ -31,25 +31,25 @@ NOME_DAS_UNIDADES = [
     "SUB PLAN DE LOGISTICA/GELOG", "SEC ADMINISTRATIVA/GELOG", "CLI ARMAZEM DE RECURSOS"
 ]
 
-# --- FUNÇÃO DE ENVIO DE E-MAIL ---
-def enviar_relatorio(destinatario, df_dados):
+# --- FUNÇÃO GERAL DE ENVIO DE E-MAIL ---
+def enviar_relatorio_email(destinatario, df_dados, titulo_relatorio):
     try:
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_dados.to_excel(writer, index=False, sheet_name='Inventario')
+            df_dados.to_excel(writer, index=False, sheet_name='Relatorio')
         
         msg = MIMEMultipart()
         msg['From'] = EMAIL_REMETENTE
         msg['To'] = destinatario
-        msg['Subject'] = f"Relatório Inventário - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        msg['Subject'] = f"{titulo_relatorio} - {datetime.now().strftime('%d/%m/%Y %H:%M')}"
         
-        corpo = f"Segue em anexo o relatório de inventário.\nTotal de itens: {len(df_dados)}"
+        corpo = f"Segue em anexo o {titulo_relatorio}.\nTotal de registros: {len(df_dados)}"
         msg.attach(MIMEText(corpo, 'plain'))
         
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(buffer.getvalue())
         encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f"attachment; filename= inventario_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
+        part.add_header('Content-Disposition', f"attachment; filename= relatorio_{datetime.now().strftime('%d%m_%H%M')}.xlsx")
         msg.attach(part)
         
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
@@ -127,23 +127,17 @@ def registrar_item_zebra():
 st.title("📊 Gestão de Patrimônio Safe")
 
 with st.sidebar:
-    st.header("📧 Enviar por E-mail")
-    email_dest = st.text_input("Destinatário:", placeholder="exemplo@email.com")
-    if st.button("Enviar Agora"):
-        if st.session_state['lista_inventario'] and email_dest:
-            with st.spinner("Enviando..."):
-                if enviar_relatorio(email_dest, pd.DataFrame(st.session_state['lista_inventario'])):
-                    st.success("Enviado!")
-        else: st.warning("Verifique o e-mail ou se há dados.")
-    
-    st.divider()
-    if st.button("🗑️ Limpar Tudo"):
+    st.header("⚙️ Ferramentas")
+    if st.button("🗑️ Limpar Backup/Zerar Tudo"):
         if os.path.exists(ARQUIVO_BACKUP): os.remove(ARQUIVO_BACKUP)
         st.session_state['lista_inventario'] = []
         st.rerun()
+    st.divider()
+    st.caption("v2.0 - Anti-perda & Multi-email ativado")
 
-tab1, tab2 = st.tabs(["🔍 Coletor Zebra", "🏢 Por Unidade"])
+tab1, tab2 = st.tabs(["🔍 Coletor Zebra", "🏢 Relatório por Unidade"])
 
+# --- ABA 1: COLETOR ---
 with tab1:
     col_r, col_i = st.columns([1, 2])
     col_r.radio("Etiqueta:", ["Papel", "Metal"], key="tipo_etiqueta_sel", horizontal=True)
@@ -156,22 +150,52 @@ with tab1:
         
         st.dataframe(df_v[cols], use_container_width=True, hide_index=True)
 
-        # --- NOVA OPÇÃO: DOWNLOAD MANUAL ---
-        buffer_dl = BytesIO()
-        with pd.ExcelWriter(buffer_dl, engine='xlsxwriter') as writer:
-            df_v[cols].to_excel(writer, index=False, sheet_name='Inventario')
+        c1, c2 = st.columns(2)
+        with c1:
+            buffer_dl = BytesIO()
+            with pd.ExcelWriter(buffer_dl, engine='xlsxwriter') as writer:
+                df_v[cols].to_excel(writer, index=False)
+            st.download_button("📥 Baixar Inventário (Excel)", buffer_dl.getvalue(), "inventario_atual.xlsx", use_container_width=True)
         
-        st.download_button(
-            label="📥 Baixar Arquivo Excel (Download Direto)",
-            data=buffer_dl.getvalue(),
-            file_name=f"inventario_{datetime.now().strftime('%d%m_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        with c2:
+            email_inv = st.text_input("E-mail para enviar inventário:", key="email_inv")
+            if st.button("📧 Enviar Inventário por E-mail", use_container_width=True):
+                if email_inv:
+                    if enviar_relatorio_email(email_inv, df_v[cols], "Relatório de Inventário Atual"):
+                        st.success("Inventário enviado!")
+                else: st.warning("Informe o e-mail.")
 
+# --- ABA 2: RELATÓRIO POR UNIDADE ---
 with tab2:
-    unidade = st.selectbox("Unidade:", NOME_DAS_UNIDADES)
+    st.subheader("Extrair Dados da Base por Unidade")
+    unidade_sel = st.selectbox("Selecione a Unidade:", NOME_DAS_UNIDADES)
+    
     if df_referencia is not None:
-        df_u = df_referencia[df_referencia['unidade_ref'] == unidade]
-        st.write(f"Itens na base: **{len(df_u)}**")
-        st.dataframe(df_u, use_container_width=True, hide_index=True)
+        df_u = df_referencia[df_referencia['unidade_ref'] == unidade_sel]
+        
+        if not df_u.empty:
+            st.write(f"Itens encontrados na base: **{len(df_u)}**")
+            # Ajuste de nomes para exibição
+            df_u_show = df_u.copy()
+            df_u_show.columns = ['PIB', 'Descrição', 'Cód. Local', 'Unidade', 'Status']
+            st.dataframe(df_u_show, use_container_width=True, hide_index=True)
+
+            # Botões de Download e E-mail específicos para esta aba
+            st.divider()
+            col_u1, col_u2 = st.columns(2)
+            
+            with col_u1:
+                buffer_uni = BytesIO()
+                with pd.ExcelWriter(buffer_uni, engine='xlsxwriter') as writer:
+                    df_u_show.to_excel(writer, index=False)
+                st.download_button(f"📥 Baixar Base: {unidade_sel}", buffer_uni.getvalue(), f"base_{unidade_sel}.xlsx", use_container_width=True)
+            
+            with col_u2:
+                email_uni = st.text_input(f"E-mail para enviar base {unidade_sel}:", key="email_uni")
+                if st.button(f"📧 Enviar Base {unidade_sel} por E-mail", use_container_width=True):
+                    if email_uni:
+                        if enviar_relatorio_email(email_uni, df_u_show, f"Relatório de Base - {unidade_sel}"):
+                            st.success(f"Base de {unidade_sel} enviada!")
+                    else: st.warning("Informe o e-mail.")
+        else:
+            st.info("Nenhum item encontrado para esta unidade na base mestre.")
